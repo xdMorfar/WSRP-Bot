@@ -50,6 +50,7 @@ const GuildConfigSchema = new Schema(
       footerText: { type: String, default: 'Powered by Wisconsin State Roleplay' },
     },
     roles: {
+      authorizedAdminUserIds: { type: [String], default: [] },
       authorizedAdminRoleIds: { type: [String], default: [] },
       managementRoleIds: { type: [String], default: [] },
       hrRoleIds: { type: [String], default: [] },

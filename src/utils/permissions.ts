@@ -11,6 +11,7 @@ export async function canUse(member: GuildMember, bucket: PermissionBucket): Pro
   const cfg = await getGuildConfig(member.guild.id);
   if (member.id === member.guild.ownerId) return true;
   if (env.bootstrapAdminIds.has(member.id)) return true;
+  if ((cfg.roles.authorizedAdminUserIds ?? []).includes(member.id)) return true;
   if (bucket === 'setup') return hasAnyRole(member, cfg.roles.authorizedAdminRoleIds ?? []);
   if (bucket === 'management') return hasAnyRole(member, [...(cfg.roles.authorizedAdminRoleIds ?? []), ...(cfg.roles.managementRoleIds ?? [])]);
   if (bucket === 'hr') return hasAnyRole(member, [...(cfg.roles.authorizedAdminRoleIds ?? []), ...(cfg.roles.managementRoleIds ?? []), ...(cfg.roles.hrRoleIds ?? [])]);

@@ -51,7 +51,7 @@ client.on('interactionCreate', (interaction) => {
         await command.execute(interaction, client);
         return;
       }
-      if (interaction.isButton() || interaction.isStringSelectMenu()) {
+      if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu() || interaction.isUserSelectMenu()) {
         await handleComponent(interaction);
         return;
       }

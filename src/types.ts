@@ -1,5 +1,8 @@
 import type {
   ButtonInteraction,
+  ChannelSelectMenuInteraction,
+  RoleSelectMenuInteraction,
+  UserSelectMenuInteraction,
   ChatInputCommandInteraction,
   Client,
   GuildMember,
@@ -39,7 +42,7 @@ export interface ApplicationConfig {
   imageUrl?: string;
 }
 
-export type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction;
+export type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction | ChannelSelectMenuInteraction | RoleSelectMenuInteraction | UserSelectMenuInteraction;
 export type AnyManagedInteraction = ComponentInteraction | ModalSubmitInteraction;
 export type PermissionBucket = 'setup' | 'management' | 'hr' | 'ia' | 'moderation';
 

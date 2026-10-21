@@ -21,7 +21,7 @@ export const setupCommand: BotCommand = {
     const embed = await brandedEmbed(interaction.guild.id, {
       title: 'Wisconsin State Roleplay — Guided Setup',
       description:
-        'Choose a section below. The bot will open a private form for the values in that section. IDs are used instead of names so configuration remains stable after renames.\n\n' +
+        'Choose a section below. Discord channels, roles, and users are selected directly with Discord pickers; the bot stores their IDs internally so configuration stays stable after renames.\n\n' +
         '**Recommended order:** Branding → Channels → Permissions → Staff Rank → Server → Rules → Applications → Ticket Support → AutoMod → Limits & Retention.',
     });
     const menu = new StringSelectMenuBuilder()
@@ -29,14 +29,18 @@ export const setupCommand: BotCommand = {
       .setPlaceholder('Choose a configuration section…')
       .addOptions(
         { label: 'Branding', value: 'branding', description: 'Name, colors, logo, banner and footer.' },
-        { label: 'Channels', value: 'channels', description: 'Logs, tickets, sessions, dashboard and announcements.' },
-        { label: 'Permissions & Staff Roles', value: 'roles', description: 'Management, HR, IA, moderation and staff-related roles.' },
-        { label: 'Add / Update Staff Rank', value: 'rank', description: 'Role ID, display name and rank level.' },
+        { label: 'Channels', value: 'channels', description: 'Pick actual Discord channels and categories.' },
+        { label: 'Permissions & Staff Roles', value: 'roles', description: 'Pick actual Discord roles for each permission group.' },
+        { label: 'Authorized Admin Users', value: 'admin-users', description: 'Pick specific Discord users allowed to run setup.' },
+        { label: 'Add / Update Staff Rank', value: 'rank', description: 'Pick a Discord role, then set its rank level.' },
         { label: 'Server / Session', value: 'server', description: 'Private-server name, join code and links.' },
         { label: 'Rules', value: 'rules', description: 'Discord and in-game regulations.' },
         { label: 'Application Panel', value: 'application', description: 'Melonly link, status and panel text.' },
-        { label: 'Ticket Support Roles', value: 'ticket', description: 'Assign support/restricted roles to a ticket category.' },
-        { label: 'AutoMod', value: 'automod', description: 'Blocked terms/domains and exemptions.' },
+        { label: 'Ticket Categories', value: 'ticket', description: 'Edit ticket category text and intake questions.' },
+        { label: 'Ticket Support Roles', value: 'ticket-roles', description: 'Pick Discord roles for ticket support/restricted access.' },
+        { label: 'AutoMod', value: 'automod', description: 'Blocked terms/domains and thresholds.' },
+        { label: 'AutoMod Exempt Roles', value: 'automod-roles', description: 'Pick roles exempt from AutoMod.' },
+        { label: 'AutoMod Exempt Channels', value: 'automod-channels', description: 'Pick channels exempt from AutoMod.' },
         { label: 'Limits & Retention', value: 'limits', description: 'Ticket limits, session votes and record retention.' },
       );
     await interaction.reply({ embeds: [embed], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)], ephemeral: true });

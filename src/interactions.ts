@@ -2,17 +2,25 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelSelectMenuBuilder,
+  ChannelType,
   EmbedBuilder,
   ModalBuilder,
   PermissionFlagsBits,
+  RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
   StringSelectMenuInteraction,
   TextInputBuilder,
   TextInputStyle,
+  UserSelectMenuBuilder,
   type ButtonInteraction,
+  type ChannelSelectMenuInteraction,
   type Client,
   type GuildMember,
   type ModalSubmitInteraction,
+  type RoleSelectMenuInteraction,
   type TextChannel,
+  type UserSelectMenuInteraction,
 } from 'discord.js';
 import { getGuildConfig } from './services/configService';
 import { buildApplicationsPanel, buildTicketPanel, publishTrackedPanel } from './services/panelService';
@@ -20,7 +28,7 @@ import { buildSessionEmbed, addSessionVote } from './services/sessionService';
 import { SessionModel } from './models/Session';
 import { canUse } from './utils/permissions';
 import { replyError, replyOk } from './utils/interaction';
-import { parseIdList, parseColor, validHttpUrl, cleanUserText } from './utils/safe';
+import { parseColor, validHttpUrl, cleanUserText } from './utils/safe';
 import { GuildConfigModel } from './models/GuildConfig';
 import { createTicket, canManageTicket, closeTicket } from './services/ticketService';
 import { TicketModel } from './models/Ticket';
@@ -51,7 +59,7 @@ function kv(raw: string) {
   return out;
 }
 
-async function requireSetup(interaction: StringSelectMenuInteraction | ModalSubmitInteraction) {
+async function requireSetup(interaction: StringSelectMenuInteraction | ChannelSelectMenuInteraction | RoleSelectMenuInteraction | UserSelectMenuInteraction | ModalSubmitInteraction) {
   if (!interaction.guild || !interaction.member) {
     await replyError(interaction, 'This setup action can only be used in a server.');
     return false;
@@ -61,6 +69,223 @@ async function requireSetup(interaction: StringSelectMenuInteraction | ModalSubm
     return false;
   }
   return true;
+}
+
+
+const CHANNEL_TARGETS: Record<string, { label: string; prop: string; category?: boolean }> = {
+  dashboard: { label: 'Dashboard Channel', prop: 'dashboardChannelId' },
+  announcements: { label: 'Announcement Channel', prop: 'announcementChannelId' },
+  'ticket-panel': { label: 'Ticket Panel Channel', prop: 'ticketPanelChannelId' },
+  'ticket-log': { label: 'Ticket Log Channel', prop: 'ticketLogChannelId' },
+  'ticket-parent': { label: 'Ticket Parent Category', prop: 'ticketParentCategoryId', category: true },
+  'staff-actions': { label: 'Staff Actions Channel', prop: 'staffActionChannelId' },
+  'staff-log': { label: 'Staff Log Channel', prop: 'staffLogChannelId' },
+  'moderation-log': { label: 'Moderation Log Channel', prop: 'moderationLogChannelId' },
+  session: { label: 'Session Channel', prop: 'sessionChannelId' },
+  suggestions: { label: 'Suggestions Channel', prop: 'suggestionsChannelId' },
+  welcome: { label: 'Welcome Channel', prop: 'welcomeChannelId' },
+};
+
+const ROLE_TARGETS: Record<string, { label: string; prop: string; multi: boolean }> = {
+  admins: { label: 'Authorized Admin Roles', prop: 'authorizedAdminRoleIds', multi: true },
+  management: { label: 'Management Roles', prop: 'managementRoleIds', multi: true },
+  hr: { label: 'HR Roles', prop: 'hrRoleIds', multi: true },
+  ia: { label: 'Internal Affairs Roles', prop: 'iaRoleIds', multi: true },
+  moderators: { label: 'Moderator Roles', prop: 'moderatorRoleIds', multi: true },
+  'staff-access': { label: 'Staff Access Roles', prop: 'staffAccessRoleIds', multi: true },
+  'staff-divisions': { label: 'Staff Division Roles', prop: 'staffDivisionRoleIds', multi: true },
+  member: { label: 'Member / Join Role', prop: 'memberRoleId', multi: false },
+  loa: { label: 'LOA Role', prop: 'loaRoleId', multi: false },
+  'session-ping': { label: 'Session Ping Role', prop: 'sessionPingRoleId', multi: false },
+};
+
+async function showChannelSetupMenu(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('setup:channel-key')
+    .setPlaceholder('Choose what this channel is used for…')
+    .addOptions(Object.entries(CHANNEL_TARGETS).map(([value, cfg]) => ({ label: cfg.label, value })));
+  return interaction.update({
+    content: '**Channels** — choose the purpose first, then Discord will let you pick the actual channel/category.',
+    embeds: [],
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+  });
+}
+
+async function showChannelPicker(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const key = interaction.values[0];
+  const target = CHANNEL_TARGETS[key];
+  if (!target) return replyError(interaction, 'Unknown channel setting.');
+  const picker = new ChannelSelectMenuBuilder()
+    .setCustomId(`setup:channel:${key}`)
+    .setPlaceholder(`Select ${target.label}…`)
+    .setMinValues(1)
+    .setMaxValues(1);
+  picker.setChannelTypes(target.category ? [ChannelType.GuildCategory] : [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+  return interaction.update({
+    content: `**${target.label}** — pick the Discord ${target.category ? 'category' : 'channel'} below.`,
+    embeds: [],
+    components: [new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(picker)],
+  });
+}
+
+async function saveChannelPicker(interaction: ChannelSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const key = interaction.customId.split(':')[2];
+  const target = CHANNEL_TARGETS[key];
+  if (!target) return replyError(interaction, 'Unknown channel setting.');
+  const selected = interaction.values[0];
+  const doc = await GuildConfigModel.findOneAndUpdate({ guildId: interaction.guild!.id }, { $setOnInsert: { guildId: interaction.guild!.id } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  if (!doc) return replyError(interaction, 'Could not load guild configuration.');
+  (doc.channels as any)[target.prop] = selected;
+  await doc.save();
+  return interaction.update({ content: `✅ **${target.label}** set to <#${selected}>.`, embeds: [], components: [], allowedMentions: { parse: [] } });
+}
+
+async function showRoleSetupMenu(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('setup:role-key')
+    .setPlaceholder('Choose what these roles control…')
+    .addOptions(Object.entries(ROLE_TARGETS).map(([value, cfg]) => ({ label: cfg.label, value })));
+  return interaction.update({
+    content: '**Permissions & Staff Roles** — choose a role group, then pick the actual Discord role(s).',
+    embeds: [],
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+  });
+}
+
+async function showRolePicker(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const key = interaction.values[0];
+  const target = ROLE_TARGETS[key];
+  if (!target) return replyError(interaction, 'Unknown role setting.');
+  const picker = new RoleSelectMenuBuilder()
+    .setCustomId(`setup:role:${key}`)
+    .setPlaceholder(`Select ${target.label}…`)
+    .setMinValues(1)
+    .setMaxValues(target.multi ? 25 : 1);
+  return interaction.update({
+    content: `**${target.label}** — select ${target.multi ? 'one or more Discord roles' : 'the Discord role'} below.`,
+    embeds: [],
+    components: [new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(picker)],
+  });
+}
+
+async function saveRolePicker(interaction: RoleSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const key = interaction.customId.split(':')[2];
+  const target = ROLE_TARGETS[key];
+  if (!target) return replyError(interaction, 'Unknown role setting.');
+  const doc = await GuildConfigModel.findOneAndUpdate({ guildId: interaction.guild!.id }, { $setOnInsert: { guildId: interaction.guild!.id } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  if (!doc) return replyError(interaction, 'Could not load guild configuration.');
+  (doc.roles as any)[target.prop] = target.multi ? [...interaction.values] : interaction.values[0];
+  await doc.save();
+  const mentions = interaction.values.map((id) => `<@&${id}>`).join(', ');
+  return interaction.update({ content: `✅ **${target.label}** set to ${mentions}.`, embeds: [], components: [], allowedMentions: { parse: [] } });
+}
+
+async function showAuthorizedAdminUsers(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const picker = new UserSelectMenuBuilder().setCustomId('setup:admin-users').setPlaceholder('Select authorized Discord users…').setMinValues(1).setMaxValues(25);
+  return interaction.update({
+    content: '**Authorized Admin Users** — these specific Discord users may run `/setup` even without an authorized admin role.',
+    embeds: [],
+    components: [new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(picker)],
+  });
+}
+
+async function saveAuthorizedAdminUsers(interaction: UserSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const doc = await GuildConfigModel.findOneAndUpdate({ guildId: interaction.guild!.id }, { $setOnInsert: { guildId: interaction.guild!.id } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  if (!doc) return replyError(interaction, 'Could not load guild configuration.');
+  (doc.roles as any).authorizedAdminUserIds = [...interaction.values];
+  await doc.save();
+  return interaction.update({ content: `✅ Authorized admin users updated: ${interaction.values.map((id) => `<@${id}>`).join(', ')}`, embeds: [], components: [], allowedMentions: { parse: [] } });
+}
+
+async function showRankRolePicker(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const picker = new RoleSelectMenuBuilder().setCustomId('setup:rank-role').setPlaceholder('Select the Discord staff rank role…').setMinValues(1).setMaxValues(1);
+  return interaction.update({
+    content: '**Add / Update Staff Rank** — pick the actual Discord role first.',
+    embeds: [],
+    components: [new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(picker)],
+  });
+}
+
+async function showRankModalFromRole(interaction: RoleSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const roleId = interaction.values[0];
+  const role = interaction.guild!.roles.cache.get(roleId);
+  const modal = new ModalBuilder().setCustomId(`setupmodal:rank:${roleId}`).setTitle('Setup — staff rank').addComponents(
+    input('name', 'Rank display name', TextInputStyle.Short, true, 'Senior Moderator', role?.name || '', 100),
+    input('level', 'Rank level (higher = more authority)', TextInputStyle.Short, true, '50', undefined, 6),
+  );
+  return interaction.showModal(modal);
+}
+
+async function showTicketRoleChoice(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const cfg = await getGuildConfig(interaction.guild!.id);
+  const options = (cfg.ticketCategories ?? []).flatMap((cat: any) => ([
+    { label: `${cat.label} — Support Roles`.slice(0, 100), value: `${cat.key}|support` },
+    { label: `${cat.label} — Restricted Roles`.slice(0, 100), value: `${cat.key}|restricted` },
+  ])).slice(0, 25);
+  if (!options.length) return replyError(interaction, 'No ticket categories are configured yet.');
+  const menu = new StringSelectMenuBuilder().setCustomId('setup:ticket-role-key').setPlaceholder('Choose ticket category and role type…').addOptions(options);
+  return interaction.update({ content: '**Ticket Support Roles** — choose which ticket category you want to configure.', embeds: [], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+}
+
+async function showTicketRolePicker(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const [key, kind] = interaction.values[0].split('|');
+  const picker = new RoleSelectMenuBuilder().setCustomId(`setup:ticketroles:${key}:${kind}`).setPlaceholder(`Select ${kind} roles…`).setMinValues(1).setMaxValues(25);
+  return interaction.update({ content: `Select the Discord **${kind}** role(s) for ticket category **${key}**.`, embeds: [], components: [new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(picker)] });
+}
+
+async function saveTicketRoles(interaction: RoleSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const [, , key, kind] = interaction.customId.split(':');
+  const doc = await GuildConfigModel.findOneAndUpdate({ guildId: interaction.guild!.id }, { $setOnInsert: { guildId: interaction.guild!.id } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  if (!doc) return replyError(interaction, 'Could not load guild configuration.');
+  const category = (doc.ticketCategories as any[]).find((c: any) => c.key === key);
+  if (!category) return replyError(interaction, 'Ticket category no longer exists.');
+  if (kind === 'support') category.supportRoleIds = [...interaction.values];
+  else category.restrictedRoleIds = [...interaction.values];
+  await doc.save();
+  return interaction.update({ content: `✅ **${category.label}** ${kind} roles updated: ${interaction.values.map((id) => `<@&${id}>`).join(', ')}`, embeds: [], components: [], allowedMentions: { parse: [] } });
+}
+
+async function showAutomodRolePicker(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const picker = new RoleSelectMenuBuilder().setCustomId('setup:automodroles').setPlaceholder('Select AutoMod-exempt roles…').setMinValues(1).setMaxValues(25);
+  return interaction.update({ content: '**AutoMod Exempt Roles** — pick the actual Discord roles.', embeds: [], components: [new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(picker)] });
+}
+
+async function saveAutomodRoles(interaction: RoleSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const doc = await GuildConfigModel.findOneAndUpdate({ guildId: interaction.guild!.id }, { $setOnInsert: { guildId: interaction.guild!.id } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  if (!doc) return replyError(interaction, 'Could not load guild configuration.');
+  doc.automod.exemptRoleIds = [...interaction.values];
+  await doc.save();
+  return interaction.update({ content: `✅ AutoMod exempt roles updated: ${interaction.values.map((id) => `<@&${id}>`).join(', ')}`, embeds: [], components: [], allowedMentions: { parse: [] } });
+}
+
+async function showAutomodChannelPicker(interaction: StringSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const picker = new ChannelSelectMenuBuilder().setCustomId('setup:automodchannels').setPlaceholder('Select AutoMod-exempt channels…').setMinValues(1).setMaxValues(25).setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
+  return interaction.update({ content: '**AutoMod Exempt Channels** — pick the actual Discord channels.', embeds: [], components: [new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(picker)] });
+}
+
+async function saveAutomodChannels(interaction: ChannelSelectMenuInteraction) {
+  if (!(await requireSetup(interaction))) return;
+  const doc = await GuildConfigModel.findOneAndUpdate({ guildId: interaction.guild!.id }, { $setOnInsert: { guildId: interaction.guild!.id } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  if (!doc) return replyError(interaction, 'Could not load guild configuration.');
+  doc.automod.exemptChannelIds = [...interaction.values];
+  await doc.save();
+  return interaction.update({ content: `✅ AutoMod exempt channels updated: ${interaction.values.map((id) => `<#${id}>`).join(', ')}`, embeds: [], components: [], allowedMentions: { parse: [] } });
 }
 
 async function showSetupModal(interaction: StringSelectMenuInteraction) {
@@ -77,34 +302,8 @@ async function showSetupModal(interaction: StringSelectMenuInteraction) {
       input('banners', 'Banner URLs: key=url, one per line', TextInputStyle.Paragraph, false, 'dashboard=https://...\nassistance=https://...\napplications=https://...\nstaff=https://...', [cfg.branding.dashboardBannerUrl ? `dashboard=${cfg.branding.dashboardBannerUrl}` : '', cfg.branding.assistanceBannerUrl ? `assistance=${cfg.branding.assistanceBannerUrl}` : '', cfg.branding.applicationsBannerUrl ? `applications=${cfg.branding.applicationsBannerUrl}` : '', cfg.branding.staffBannerUrl ? `staff=${cfg.branding.staffBannerUrl}` : ''].filter(Boolean).join('\n'), 2000),
       input('footer', 'Footer text', TextInputStyle.Short, false, 'Powered by Wisconsin State Roleplay', cfg.branding.footerText || '', 200),
     );
-  } else if (section === 'channels') {
-    const c = cfg.channels;
-    const lines = [
-      ['dashboard', c.dashboardChannelId], ['announcements', c.announcementChannelId], ['ticket-panel', c.ticketPanelChannelId], ['ticket-log', c.ticketLogChannelId], ['ticket-parent', c.ticketParentCategoryId],
-      ['staff-actions', c.staffActionChannelId], ['staff-log', c.staffLogChannelId], ['moderation-log', c.moderationLogChannelId], ['session', c.sessionChannelId], ['suggestions', c.suggestionsChannelId], ['welcome', c.welcomeChannelId],
-    ].filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('\n');
-    modal.addComponents(input('channels', 'Channel IDs: key=id, one per line', TextInputStyle.Paragraph, true, 'dashboard=123...\nmoderation-log=123...\nticket-log=123...', lines, 4000));
-  } else if (section === 'roles') {
-    const r = cfg.roles;
-    const roleLines = [
-      `admins=${(r.authorizedAdminRoleIds ?? []).join(',')}`,
-      `management=${(r.managementRoleIds ?? []).join(',')}`,
-      `hr=${(r.hrRoleIds ?? []).join(',')}`,
-      `ia=${(r.iaRoleIds ?? []).join(',')}`,
-      `moderators=${(r.moderatorRoleIds ?? []).join(',')}`,
-      `staff-access=${(r.staffAccessRoleIds ?? []).join(',')}`,
-      `staff-divisions=${(r.staffDivisionRoleIds ?? []).join(',')}`,
-      `member=${r.memberRoleId ?? ''}`,
-      `loa=${r.loaRoleId ?? ''}`,
-      `session-ping=${r.sessionPingRoleId ?? ''}`,
-    ].join('\n');
-    modal.addComponents(input('roles', 'Role IDs: key=id,id', TextInputStyle.Paragraph, true, 'management=123,456\nia=789\nmember=...', roleLines, 4000));
-  } else if (section === 'rank') {
-    modal.addComponents(
-      input('role_id', 'Rank role ID', TextInputStyle.Short, true, '123456789012345678', undefined, 22),
-      input('name', 'Rank display name', TextInputStyle.Short, true, 'Senior Moderator', undefined, 100),
-      input('level', 'Rank level (higher = more authority)', TextInputStyle.Short, true, '50', undefined, 6),
-    );
+  } else if (section === 'channels' || section === 'roles' || section === 'rank' || section === 'admin-users' || section === 'ticket-roles' || section === 'automod-roles' || section === 'automod-channels') {
+    return replyError(interaction, 'Use the Discord selector shown in setup for this section.');
   } else if (section === 'server') {
     modal.addComponents(
       input('server_name', 'ER:LC private server name', TextInputStyle.Short, true, 'Wisconsin State Roleplay', cfg.server.privateServerName || '', 100),
@@ -129,8 +328,6 @@ async function showSetupModal(interaction: StringSelectMenuInteraction) {
   } else if (section === 'ticket') {
     modal.addComponents(
       input('key', 'Category key | Display label', TextInputStyle.Short, true, 'general|General Support', undefined, 180),
-      input('support', 'Support role IDs', TextInputStyle.Short, false, '123,456', undefined, 500),
-      input('restricted', 'Restricted role IDs (IA/management)', TextInputStyle.Short, false, '789', undefined, 500),
       input('questions', 'Intake questions — one per line (max 5)', TextInputStyle.Paragraph, false, 'Briefly explain what you need help with.', undefined, 2000),
       input('description', 'Category description', TextInputStyle.Paragraph, false, 'Questions and service-related assistance.', undefined, 500),
     );
@@ -138,8 +335,6 @@ async function showSetupModal(interaction: StringSelectMenuInteraction) {
     modal.addComponents(
       input('words', 'Blocked words/phrases — one per line', TextInputStyle.Paragraph, false, 'term1\nterm2', (cfg.automod.blockedWords ?? []).join('\n'), 2000),
       input('domains', 'Blocked domains — one per line', TextInputStyle.Paragraph, false, 'example.com', (cfg.automod.blockedDomains ?? []).join('\n'), 2000),
-      input('exempt_roles', 'Exempt role IDs', TextInputStyle.Short, false, '123,456', (cfg.automod.exemptRoleIds ?? []).join(','), 1000),
-      input('exempt_channels', 'Exempt channel IDs', TextInputStyle.Short, false, '123,456', (cfg.automod.exemptChannelIds ?? []).join(','), 1000),
       input('thresholds', 'Thresholds: key=value', TextInputStyle.Paragraph, false, 'spam=6\nwindow=8\nmentions=6\ntimeout=10\nrapidjoins=8', `spam=${cfg.automod.spamMessages}\nwindow=${cfg.automod.spamWindowSeconds}\nmentions=${cfg.automod.mentionLimit}\ntimeout=${cfg.automod.timeoutMinutes}\nrapidjoins=${cfg.automod.rapidJoinCount}`, 1000),
     );
   } else if (section === 'limits') {
@@ -174,32 +369,11 @@ async function saveSetupModal(interaction: ModalSubmitInteraction) {
     doc.branding.staffBannerUrl = validHttpUrl(banners.staff) ? banners.staff : undefined;
     doc.branding.footerText = cleanUserText(interaction.fields.getTextInputValue('footer'), 200) || 'Powered by Wisconsin State Roleplay';
   }
-  if (section === 'channels') {
-    const values = kv(interaction.fields.getTextInputValue('channels'));
-    const map: Record<string, string> = {
-      dashboard: 'dashboardChannelId', announcements: 'announcementChannelId', 'ticket-panel': 'ticketPanelChannelId', 'ticket-log': 'ticketLogChannelId', 'ticket-parent': 'ticketParentCategoryId',
-      'staff-actions': 'staffActionChannelId', 'staff-log': 'staffLogChannelId', 'moderation-log': 'moderationLogChannelId', session: 'sessionChannelId', suggestions: 'suggestionsChannelId', welcome: 'welcomeChannelId',
-    };
-    for (const [key, prop] of Object.entries(map)) if (values[key] && /^\d{15,22}$/.test(values[key])) (doc.channels as any)[prop] = values[key];
-  }
-  if (section === 'roles') {
-    const values = kv(interaction.fields.getTextInputValue('roles'));
-    doc.roles.authorizedAdminRoleIds = parseIdList(values.admins || '');
-    doc.roles.managementRoleIds = parseIdList(values.management || '');
-    doc.roles.hrRoleIds = parseIdList(values.hr || '');
-    doc.roles.iaRoleIds = parseIdList(values.ia || '');
-    doc.roles.moderatorRoleIds = parseIdList(values.moderators || '');
-    doc.roles.staffAccessRoleIds = parseIdList(values['staff-access'] || '');
-    doc.roles.staffDivisionRoleIds = parseIdList(values['staff-divisions'] || '');
-    doc.roles.memberRoleId = parseIdList(values.member || '')[0];
-    doc.roles.loaRoleId = parseIdList(values.loa || '')[0];
-    doc.roles.sessionPingRoleId = parseIdList(values['session-ping'] || '')[0];
-  }
   if (section === 'rank') {
-    const roleId = interaction.fields.getTextInputValue('role_id').trim();
+    const roleId = interaction.customId.split(':')[2];
     const name = cleanUserText(interaction.fields.getTextInputValue('name'), 100);
     const level = Number(interaction.fields.getTextInputValue('level'));
-    if (!/^\d{15,22}$/.test(roleId) || !Number.isFinite(level)) return replyError(interaction, 'Rank role ID or level is invalid.');
+    if (!roleId || !interaction.guild!.roles.cache.has(roleId) || !Number.isFinite(level)) return replyError(interaction, 'Rank role or level is invalid.');
     const existing = (doc.staffRanks as any[]).find((r: any) => r.roleId === roleId);
     if (existing) Object.assign(existing, { name, level });
     else (doc.staffRanks as any[]).push({ roleId, name, level });
@@ -243,16 +417,12 @@ async function saveSetupModal(interaction: ModalSubmitInteraction) {
       categories.push(existing);
     }
     if (rawLabel?.trim()) existing.label = cleanUserText(rawLabel.trim(), 100);
-    existing.supportRoleIds = parseIdList(interaction.fields.getTextInputValue('support'));
-    existing.restrictedRoleIds = parseIdList(interaction.fields.getTextInputValue('restricted'));
     if (qs.length) existing.questions = qs;
     if (desc) existing.description = desc;
   }
   if (section === 'automod') {
     doc.automod.blockedWords = interaction.fields.getTextInputValue('words').split(/\r?\n/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 200);
     doc.automod.blockedDomains = interaction.fields.getTextInputValue('domains').split(/\r?\n/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 200);
-    doc.automod.exemptRoleIds = parseIdList(interaction.fields.getTextInputValue('exempt_roles'));
-    doc.automod.exemptChannelIds = parseIdList(interaction.fields.getTextInputValue('exempt_channels'));
     const t = kv(interaction.fields.getTextInputValue('thresholds'));
     const n = (key: string, fallback: number, min: number, max: number) => Math.min(max, Math.max(min, Number(t[key]) || fallback));
     doc.automod.spamMessages = n('spam', doc.automod.spamMessages, 3, 30);
@@ -376,8 +546,8 @@ async function ticketButton(interaction: ButtonInteraction) {
     return replyOk(interaction, 'Ticket claimed.');
   }
   if (action === 'add') {
-    const modal = new ModalBuilder().setCustomId(`ticketadd:${ticketId}`).setTitle('Add Ticket Participant').addComponents(input('user_id', 'Discord user ID', TextInputStyle.Short, true, '123456789012345678', undefined, 22));
-    return interaction.showModal(modal);
+    const picker = new UserSelectMenuBuilder().setCustomId(`ticketadd:${ticketId}`).setPlaceholder('Select a Discord user to add…').setMinValues(1).setMaxValues(1);
+    return interaction.reply({ content: 'Choose the Discord user you want to add to this ticket.', components: [new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(picker)], ephemeral: true });
   }
   if (action === 'transfer') {
     const modal = new ModalBuilder().setCustomId(`tickettransfer:${ticketId}`).setTitle('Transfer Ticket').addComponents(input('category', 'Configured category key', TextInputStyle.Short, true, 'general / staff-report / appeal', undefined, 100));
@@ -402,15 +572,6 @@ async function ticketControlModal(interaction: ModalSubmitInteraction) {
   if (!(await canManageTicket(member, ticket))) return replyError(interaction, 'Only the assigned support team can use this control.');
   const channel = interaction.guild.channels.cache.get(ticket.channelId);
   if (!channel || !('permissionOverwrites' in channel)) return replyError(interaction, 'Ticket channel is unavailable.');
-  if (kind === 'ticketadd') {
-    const id = interaction.fields.getTextInputValue('user_id').trim();
-    if (!/^\d{15,22}$/.test(id)) return replyError(interaction, 'Invalid user ID.');
-    await interaction.guild.members.fetch(id).catch(() => null);
-    await channel.permissionOverwrites.edit(id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
-    if (!ticket.participants.includes(id)) ticket.participants.push(id);
-    await ticket.save();
-    return replyOk(interaction, `Added <@${id}> to the ticket.`);
-  }
   if (kind === 'tickettransfer') {
     const key = interaction.fields.getTextInputValue('category').trim().toLowerCase();
     const cfg = await getGuildConfig(interaction.guild.id);
@@ -423,6 +584,25 @@ async function ticketControlModal(interaction: ModalSubmitInteraction) {
     ticket.categoryKey = key; await ticket.save();
     return replyOk(interaction, `Ticket transferred to **${category.label}**.`);
   }
+}
+
+
+async function ticketAddUserSelect(interaction: UserSelectMenuInteraction) {
+  if (!interaction.guild || !interaction.member) return replyError(interaction, 'Server context unavailable.');
+  const ticketId = Number(interaction.customId.split(':')[1]);
+  const ticket = await TicketModel.findOne({ guildId: interaction.guild.id, ticketId, status: 'open' });
+  if (!ticket) return replyError(interaction, 'Ticket is no longer open.');
+  const member = interaction.member as GuildMember;
+  if (!(await canManageTicket(member, ticket))) return replyError(interaction, 'Only the assigned support team can use this control.');
+  const channel = interaction.guild.channels.cache.get(ticket.channelId);
+  if (!channel || !('permissionOverwrites' in channel)) return replyError(interaction, 'Ticket channel is unavailable.');
+  const id = interaction.values[0];
+  const selectedMember = await interaction.guild.members.fetch(id).catch(() => null);
+  if (!selectedMember) return replyError(interaction, 'That user is not in this server.');
+  await channel.permissionOverwrites.edit(id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+  if (!ticket.participants.includes(id)) ticket.participants.push(id);
+  await ticket.save();
+  return interaction.update({ content: `✅ Added <@${id}> to ticket #${ticketId}.`, components: [], allowedMentions: { parse: [] } });
 }
 
 function customPanelPayload(data: any) {
@@ -540,12 +720,39 @@ async function loaButton(interaction: ButtonInteraction) {
   await interaction.update({ content: `LOA #${requestId}: **${req.status}** by <@${interaction.user.id}>.`, components: [], allowedMentions: { parse: [] } });
 }
 
-export async function handleComponent(interaction: ButtonInteraction | StringSelectMenuInteraction) {
+export async function handleComponent(interaction: ButtonInteraction | StringSelectMenuInteraction | ChannelSelectMenuInteraction | RoleSelectMenuInteraction | UserSelectMenuInteraction) {
   if (interaction.isStringSelectMenu()) {
-    if (interaction.customId === 'setup:section') return showSetupModal(interaction);
+    if (interaction.customId === 'setup:section') {
+      const section = interaction.values[0];
+      if (section === 'channels') return showChannelSetupMenu(interaction);
+      if (section === 'roles') return showRoleSetupMenu(interaction);
+      if (section === 'admin-users') return showAuthorizedAdminUsers(interaction);
+      if (section === 'rank') return showRankRolePicker(interaction);
+      if (section === 'ticket-roles') return showTicketRoleChoice(interaction);
+      if (section === 'automod-roles') return showAutomodRolePicker(interaction);
+      if (section === 'automod-channels') return showAutomodChannelPicker(interaction);
+      return showSetupModal(interaction);
+    }
+    if (interaction.customId === 'setup:channel-key') return showChannelPicker(interaction);
+    if (interaction.customId === 'setup:role-key') return showRolePicker(interaction);
+    if (interaction.customId === 'setup:ticket-role-key') return showTicketRolePicker(interaction);
     if (interaction.customId === 'dashboard:section') return handleDashboardSelect(interaction);
     if (interaction.customId === 'application:select') return handleApplicationSelect(interaction);
     if (interaction.customId === 'ticket:create') return showTicketModal(interaction);
+  }
+  if (interaction.isChannelSelectMenu()) {
+    if (interaction.customId.startsWith('setup:channel:')) return saveChannelPicker(interaction);
+    if (interaction.customId === 'setup:automodchannels') return saveAutomodChannels(interaction);
+  }
+  if (interaction.isRoleSelectMenu()) {
+    if (interaction.customId.startsWith('setup:role:')) return saveRolePicker(interaction);
+    if (interaction.customId === 'setup:rank-role') return showRankModalFromRole(interaction);
+    if (interaction.customId.startsWith('setup:ticketroles:')) return saveTicketRoles(interaction);
+    if (interaction.customId === 'setup:automodroles') return saveAutomodRoles(interaction);
+  }
+  if (interaction.isUserSelectMenu()) {
+    if (interaction.customId === 'setup:admin-users') return saveAuthorizedAdminUsers(interaction);
+    if (interaction.customId.startsWith('ticketadd:')) return ticketAddUserSelect(interaction);
   }
   if (interaction.isButton()) {
     if (interaction.customId === 'session:vote') {
@@ -562,5 +769,5 @@ export async function handleComponent(interaction: ButtonInteraction | StringSel
 export async function handleModal(interaction: ModalSubmitInteraction) {
   if (interaction.customId.startsWith('setupmodal:')) return saveSetupModal(interaction);
   if (interaction.customId.startsWith('ticketmodal:')) return submitTicketModal(interaction);
-  if (interaction.customId.startsWith('ticketclose:') || interaction.customId.startsWith('ticketadd:') || interaction.customId.startsWith('tickettransfer:')) return ticketControlModal(interaction);
+  if (interaction.customId.startsWith('ticketclose:') || interaction.customId.startsWith('tickettransfer:')) return ticketControlModal(interaction);
 }
