@@ -159,7 +159,9 @@ export const timeoutCommand: BotCommand = {
     const user = interaction.options.getUser('member', true);
     const target = await interaction.guild!.members.fetch(user.id).catch(() => null);
     if (!target) return replyError(interaction, 'That member is not in the server.');
-    const duration = ms(interaction.options.getString('duration', true) as any);
+    const durationInput = interaction.options.getString('duration', true);
+    const parsedDuration = ms(durationInput as Parameters<typeof ms>[0]);
+    const duration = typeof parsedDuration === 'number' ? parsedDuration : NaN;
     if (!duration || duration < 1000 || duration > 28 * 86_400_000) return replyError(interaction, 'Duration must be between 1 second and 28 days, e.g. `10m`, `2h`, `3d`.');
     await interaction.deferReply({ ephemeral: true });
     try {

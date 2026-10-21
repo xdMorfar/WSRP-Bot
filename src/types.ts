@@ -9,7 +9,7 @@ import type {
 
 export interface BotCommand {
   data: { name: string; toJSON(): unknown };
-  execute: (interaction: ChatInputCommandInteraction, client: Client) => Promise<void>;
+  execute: (interaction: ChatInputCommandInteraction, client: Client) => Promise<unknown>;
 }
 
 export interface RankConfig {

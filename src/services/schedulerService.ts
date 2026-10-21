@@ -15,8 +15,8 @@ async function processSuspension(client: Client, action: any) {
   const profile = await StaffProfileModel.findOne({ guildId: action.guildId, userId: action.userId });
   if (!member || profile?.employmentStatus === 'terminated') return true;
   const cfg = await getGuildConfig(guild.id);
-  const rankRoleIds = new Set((cfg.staffRanks ?? []).map((r: any) => r.roleId));
-  const validStaffRoles = new Set([
+  const rankRoleIds = new Set<string>((cfg.staffRanks ?? []).map((r: any) => String(r.roleId)));
+  const validStaffRoles = new Set<string>([
     ...rankRoleIds,
     ...(cfg.roles.staffAccessRoleIds ?? []),
     ...(cfg.roles.staffDivisionRoleIds ?? []),
