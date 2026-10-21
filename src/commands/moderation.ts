@@ -198,7 +198,7 @@ export const untimeoutCommand: BotCommand = {
 };
 
 export const purgeCommand: BotCommand = {
-  data: new SlashCommandBuilder().setName('purge').setDescription('Bulk-delete recent messages.').addIntegerOption((o) => o.setName('amount').setDescription('1-100').setRequired(true).setMinValue(1).setMaxValue(100)).addUserOption((o) => o.setName('user').setDescription('Only messages from this user')).addStringOption((o) => o.setName('reason').setDescription('Audit reason').setRequired(true).setMaxLength(500)),
+  data: new SlashCommandBuilder().setName('purge').setDescription('Bulk-delete recent messages.').addIntegerOption((o) => o.setName('amount').setDescription('1-100').setRequired(true).setMinValue(1).setMaxValue(100)).addStringOption((o) => o.setName('reason').setDescription('Audit reason').setRequired(true).setMaxLength(500)).addUserOption((o) => o.setName('user').setDescription('Only messages from this user')),
   async execute(interaction) {
     if (!(await requireMod(interaction))) return;
     if (!interaction.channel || !('bulkDelete' in interaction.channel)) return replyError(interaction, 'This channel does not support bulk deletion.');

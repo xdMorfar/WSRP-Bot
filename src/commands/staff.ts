@@ -33,16 +33,16 @@ export const staffCommand: BotCommand = {
         .setName('promote')
         .setDescription('Promote a staff member.')
         .addUserOption((o) => o.setName('member').setDescription('Staff member').setRequired(true))
-        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role'))
-        .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000)),
+        .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000))
+        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role')),
     )
     .addSubcommand((s) =>
       s
         .setName('demote')
         .setDescription('Demote a staff member.')
         .addUserOption((o) => o.setName('member').setDescription('Staff member').setRequired(true))
-        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role'))
-        .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000)),
+        .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000))
+        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role')),
     )
     .addSubcommand((s) =>
       s
