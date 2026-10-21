@@ -1,0 +1,29 @@
+WSRP BOT - PANEL + STAFF ANNOUNCEMENT UPDATE
+
+After replacing the old project with this version:
+
+1. Restart the bot using the existing build/deploy/start command.
+2. Run /setup -> Channels and configure:
+   - Dashboard Channel
+   - Applications Channel
+   - Assistance / Tickets Channel
+   - Staff Information Channel
+   - Promotions Channel
+   - Infractions Channel
+   - Session Channel
+3. In /setup -> Server / Session, make sure External rules URL is your rules website.
+4. Republish the persistent panels:
+   - /dashboard publish
+   - /dashboard applications
+   - /dashboard tickets
+   - /dashboard staff
+
+Changes:
+- Dashboard is now a clean navigation hub with direct channel buttons.
+- Rules opens the configured website instead of displaying rule text in Discord.
+- Applications, Assistance and Staff have separate configured channels.
+- Assistance panel is simplified and duplicate categories are hidden automatically.
+- Promotion announcements go only to Promotions Channel.
+- Demotions, infractions, suspensions and terminations go only to Infractions Channel.
+- Staff announcement embeds were redesigned and no longer show the large automatic logo thumbnail.
+- Moving a tracked panel to another configured channel removes the old tracked panel when possible.

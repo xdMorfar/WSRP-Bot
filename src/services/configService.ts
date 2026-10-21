@@ -57,7 +57,10 @@ export async function validateGuildConfig(guild: Guild) {
   if (!cfg.staffRanks?.length) issues.push('No staff rank hierarchy has been configured.');
   if (!cfg.channels?.moderationLogChannelId) issues.push('No moderation log channel is configured.');
   if (!cfg.channels?.ticketLogChannelId) issues.push('No ticket transcript/log channel is configured.');
-  if (!cfg.channels?.staffActionChannelId) issues.push('No staff action announcement channel is configured.');
+  if (!cfg.channels?.promotionChannelId) issues.push('No promotions announcement channel is configured.');
+  if (!cfg.channels?.infractionChannelId) issues.push('No staff infractions announcement channel is configured.');
+  if (!cfg.channels?.applicationsChannelId) issues.push('No applications panel channel is configured.');
+  if (!cfg.channels?.ticketPanelChannelId) issues.push('No assistance/tickets panel channel is configured.');
 
   return { cfg, issues };
 }

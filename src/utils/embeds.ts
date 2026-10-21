@@ -1,7 +1,7 @@
 import { EmbedBuilder, type APIEmbedField } from 'discord.js';
 import { getGuildConfig } from '../services/configService';
 
-export async function brandedEmbed(guildId: string, opts?: { title?: string; description?: string; color?: number; imageUrl?: string; thumbnailUrl?: string; fields?: APIEmbedField[] }) {
+export async function brandedEmbed(guildId: string, opts?: { title?: string; description?: string; color?: number; imageUrl?: string; thumbnailUrl?: string | null; showDefaultThumbnail?: boolean; fields?: APIEmbedField[] }) {
   const cfg = await getGuildConfig(guildId);
   const embed = new EmbedBuilder()
     .setColor(opts?.color ?? cfg.branding.primaryColor)
@@ -10,7 +10,8 @@ export async function brandedEmbed(guildId: string, opts?: { title?: string; des
   if (opts?.title) embed.setTitle(opts.title);
   if (opts?.description) embed.setDescription(opts.description);
   if (opts?.imageUrl) embed.setImage(opts.imageUrl);
-  if (opts?.thumbnailUrl || cfg.branding.logoUrl) embed.setThumbnail(opts?.thumbnailUrl || cfg.branding.logoUrl);
+  if (opts?.thumbnailUrl) embed.setThumbnail(opts.thumbnailUrl);
+  else if (opts?.showDefaultThumbnail !== false && cfg.branding.logoUrl) embed.setThumbnail(cfg.branding.logoUrl);
   if (opts?.fields?.length) embed.addFields(opts.fields.slice(0, 25));
   return embed;
 }

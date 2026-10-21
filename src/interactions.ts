@@ -72,13 +72,16 @@ async function requireSetup(interaction: StringSelectMenuInteraction | ChannelSe
 }
 
 
-const CHANNEL_TARGETS: Record<string, { label: string; prop: string; category?: boolean }> = {
-  dashboard: { label: 'Dashboard Channel', prop: 'dashboardChannelId' },
+const CHANNEL_TARGETS: Record<string, { label: string; prop: string; category?: boolean; textOnly?: boolean }> = {
+  dashboard: { label: 'Dashboard Channel', prop: 'dashboardChannelId', textOnly: true },
+  applications: { label: 'Applications Channel', prop: 'applicationsChannelId', textOnly: true },
   announcements: { label: 'Announcement Channel', prop: 'announcementChannelId' },
-  'ticket-panel': { label: 'Ticket Panel Channel', prop: 'ticketPanelChannelId' },
+  'ticket-panel': { label: 'Assistance / Tickets Channel', prop: 'ticketPanelChannelId', textOnly: true },
+  'staff-info': { label: 'Staff Information Channel', prop: 'staffInfoChannelId', textOnly: true },
   'ticket-log': { label: 'Ticket Log Channel', prop: 'ticketLogChannelId' },
   'ticket-parent': { label: 'Ticket Parent Category', prop: 'ticketParentCategoryId', category: true },
-  'staff-actions': { label: 'Staff Actions Channel', prop: 'staffActionChannelId' },
+  promotions: { label: 'Promotions Channel', prop: 'promotionChannelId' },
+  infractions: { label: 'Infractions Channel', prop: 'infractionChannelId' },
   'staff-log': { label: 'Staff Log Channel', prop: 'staffLogChannelId' },
   'moderation-log': { label: 'Moderation Log Channel', prop: 'moderationLogChannelId' },
   session: { label: 'Session Channel', prop: 'sessionChannelId' },
@@ -122,7 +125,7 @@ async function showChannelPicker(interaction: StringSelectMenuInteraction) {
     .setPlaceholder(`Select ${target.label}…`)
     .setMinValues(1)
     .setMaxValues(1);
-  picker.setChannelTypes(target.category ? [ChannelType.GuildCategory] : [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+  picker.setChannelTypes(target.category ? [ChannelType.GuildCategory] : target.textOnly ? [ChannelType.GuildText] : [ChannelType.GuildText, ChannelType.GuildAnnouncement]);
   return interaction.update({
     content: `**${target.label}** — pick the Discord ${target.category ? 'category' : 'channel'} below.`,
     embeds: [],
@@ -452,27 +455,24 @@ async function handleDashboardSelect(interaction: StringSelectMenuInteraction) {
   if (!interaction.guild) return replyError(interaction, 'Server context unavailable.');
   const cfg = await getGuildConfig(interaction.guild.id);
   const selected = interaction.values[0];
-  if (selected === 'applications') {
-    const payload = await buildApplicationsPanel(interaction.guild.id);
-    return interaction.reply({ ...payload, ephemeral: true });
+
+  if (selected === 'discord-rules' || selected === 'game-rules') {
+    if (!validHttpUrl(cfg.server.rulesUrl)) return replyError(interaction, 'The rules website has not been configured yet.');
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open Rules Website').setURL(cfg.server.rulesUrl),
+    );
+    return interaction.reply({ content: 'Server regulations are hosted on the official rules website.', components: [row], ephemeral: true });
   }
-  if (selected === 'tickets') {
-    const payload = await buildTicketPanel(interaction.guild.id);
-    return interaction.reply({ ...payload, ephemeral: true });
-  }
-  if (selected === 'session') {
-    const state = (await SessionModel.findOne({ guildId: interaction.guild.id })) ?? { active: false };
-    return interaction.reply({ embeds: [await buildSessionEmbed(interaction.guild.id, state)], ephemeral: true, allowedMentions: { parse: [] } });
-  }
-  if (selected === 'staff') {
-    const ranks = [...(cfg.staffRanks ?? [])].sort((a: any, b: any) => b.level - a.level);
-    const embed = await brandedEmbed(interaction.guild.id, { title: 'Staff Information / Chain of Command', description: ranks.length ? ranks.map((r: any, i: number) => `${i + 1}. <@&${r.roleId}> — **${r.name}**`).join('\n') : 'Staff hierarchy has not been configured yet.' });
-    return interaction.reply({ embeds: [embed], ephemeral: true, allowedMentions: { parse: [] } });
-  }
-  const rules = selected === 'discord-rules' ? cfg.server.discordRules : cfg.server.gameRules;
-  const title = selected === 'discord-rules' ? 'Discord Regulations' : 'Game Regulations';
-  const embed = await brandedEmbed(interaction.guild.id, { title, description: rules?.length ? rules.map((r: string, i: number) => `**Rule ${i + 1}**\n${r}`).join('\n\n').slice(0, 4000) : 'No rules have been configured in this section yet.' });
-  return interaction.reply({ embeds: [embed], ephemeral: true });
+
+  const channels: Record<string, { id?: string; label: string }> = {
+    applications: { id: cfg.channels.applicationsChannelId, label: 'Applications' },
+    tickets: { id: cfg.channels.ticketPanelChannelId, label: 'Assistance' },
+    staff: { id: cfg.channels.staffInfoChannelId, label: 'Staff Information' },
+    session: { id: cfg.channels.sessionChannelId, label: 'Sessions' },
+  };
+  const target = channels[selected];
+  if (!target?.id) return replyError(interaction, `${target?.label || 'That section'} channel is not configured yet.`);
+  return interaction.reply({ content: `Go to **${target.label}**: <#${target.id}>`, ephemeral: true, allowedMentions: { parse: [] } });
 }
 
 

@@ -93,24 +93,36 @@ export async function changeStaffRank(input: {
     { upsert: true, new: true },
   );
 
+  const previousRank = previous?.roleId ? `<@&${previous.roleId}>` : 'None';
+  const nextRank = `<@&${next.roleId}>`;
+  const isPromotion = input.direction === 'promote';
   const embed = await brandedEmbed(input.guild.id, {
-    title: `${cfg.branding.name} | Staff ${input.direction === 'promote' ? 'Promotion' : 'Demotion'}`,
-    color: input.direction === 'promote' ? cfg.branding.successColor : cfg.branding.warningColor,
+    title: isPromotion ? 'Staff Promotion' : 'Staff Demotion',
+    color: isPromotion ? cfg.branding.primaryColor : cfg.branding.warningColor,
     imageUrl: cfg.branding.staffBannerUrl || undefined,
+    showDefaultThumbnail: false,
     description:
-      input.direction === 'promote'
-        ? `The ${cfg.branding.name} High Rank Team is pleased to recognize this staff member with a promotion.`
-        : `The ${cfg.branding.name} High Rank Team has issued a staff rank change.`,
-    fields: [
-      { name: 'Staff Member', value: `<@${input.target.id}>`, inline: true },
-      { name: 'Previous Rank', value: previous?.name ?? 'None', inline: true },
-      { name: 'New Rank', value: next.name, inline: true },
-      { name: 'Reason', value: cleanUserText(input.reason, 900) },
-      { name: 'Case', value: `#${record.caseId}`, inline: true },
-      { name: 'Signed by', value: `<@${input.actor.id}>`, inline: true },
-    ],
+      `${isPromotion
+        ? `The **${cfg.branding.name} High Rank Team** is pleased to recognize <@${input.target.id}> for their work and contribution to the staff team.`
+        : `The **${cfg.branding.name} High Rank Team** has finalized a staff rank change for <@${input.target.id}>.`}
+
+` +
+      `### ${isPromotion ? 'Promotion' : 'Demotion'} Information
+` +
+      `**Staff Member:** <@${input.target.id}>
+` +
+      `**${isPromotion ? 'Promoted' : 'Demoted'} By:** <@${input.actor.id}>
+` +
+      `**Previous Rank:** ${previousRank}
+` +
+      `**New Rank:** ${nextRank}
+` +
+      `**Reason:** ${cleanUserText(input.reason, 900)}
+
+` +
+      `**Case:** #${record.caseId}  •  **Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
   });
-  await announce(input.guild, cfg.channels.staffActionChannelId, { embeds: [embed] });
+  await announce(input.guild, isPromotion ? cfg.channels.promotionChannelId : cfg.channels.infractionChannelId, { embeds: [embed] });
   await input.target.send({ embeds: [embed] }).catch(() => undefined);
   return record;
 }
@@ -181,21 +193,35 @@ export async function issueStaffInfraction(input: {
     }
   }
 
+  const typeLabel = input.type
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
   const embed = await brandedEmbed(input.guild.id, {
-    title: `${cfg.branding.name} | Staff Infraction — ${input.type.replace(/\b\w/g, (m: string) => m.toUpperCase())}`,
+    title: `Staff Infraction — ${typeLabel}`,
     color: input.type === 'verbal-warning' ? cfg.branding.warningColor : cfg.branding.dangerColor,
     imageUrl: cfg.branding.staffBannerUrl || undefined,
-    description: `The ${cfg.branding.name} High Rank Team has issued this action after reviewing the relevant staff conduct and regulations.`,
-    fields: [
-      { name: 'Staff Member', value: `<@${input.target.id}>`, inline: true },
-      { name: 'Infraction', value: input.type.replace(/-/g, ' '), inline: true },
-      { name: 'Case', value: `#${record.caseId}`, inline: true },
-      { name: 'Reason', value: cleanUserText(input.reason, 900) },
-      ...(input.expiry ? [{ name: 'Expires', value: `<t:${Math.floor(input.expiry.getTime() / 1000)}:F>` }] : []),
-      { name: 'Signed by', value: `<@${input.actor.id}>` },
-    ],
+    showDefaultThumbnail: false,
+    description:
+      `The **${cfg.branding.name} High Rank Team** has issued a staff disciplinary action after reviewing the relevant conduct.
+
+` +
+      `### Infraction Information
+` +
+      `**Staff Member:** <@${input.target.id}>
+` +
+      `**Issued By:** <@${input.actor.id}>
+` +
+      `**Infraction:** ${typeLabel}
+` +
+      `**Reason:** ${cleanUserText(input.reason, 900)}
+` +
+      `${input.expiry ? `**Expires:** <t:${Math.floor(input.expiry.getTime() / 1000)}:F>
+` : ''}` +
+      `
+**Case:** #${record.caseId}  •  **Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
   });
-  await announce(input.guild, cfg.channels.staffActionChannelId, { embeds: [embed] });
+  await announce(input.guild, cfg.channels.infractionChannelId, { embeds: [embed] });
   await input.target.send({ embeds: [embed] }).catch(() => undefined);
   return record;
 }
@@ -301,20 +327,28 @@ export async function terminateStaff(input: {
   }
 
   const embed = await brandedEmbed(input.guild.id, {
-    title: `${cfg.branding.name} | Staff Termination`,
+    title: 'Staff Termination',
     color: cfg.branding.dangerColor,
     imageUrl: cfg.branding.staffBannerUrl || undefined,
-    description: `A staff employment action has been finalized by the ${cfg.branding.name} High Rank Team.`,
-    fields: [
-      { name: 'Staff Member', value: `<@${input.target.id}>`, inline: true },
-      { name: 'Action', value: 'Termination', inline: true },
-      { name: 'Case', value: `#${record.caseId}`, inline: true },
-      { name: 'Reason', value: cleanUserText(input.reason, 900) },
-      { name: 'Staff roles removed', value: removed.length ? removed.map((id) => `<@&${id}>`).join(', ') : 'None found' },
-      { name: 'Signed by', value: `<@${input.actor.id}>` },
-    ],
+    showDefaultThumbnail: false,
+    description:
+      `The **${cfg.branding.name} High Rank Team** has finalized a staff termination.
+
+` +
+      `### Termination Information
+` +
+      `**Staff Member:** <@${input.target.id}>
+` +
+      `**Terminated By:** <@${input.actor.id}>
+` +
+      `**Reason:** ${cleanUserText(input.reason, 900)}
+` +
+      `**Staff Roles Removed:** ${removed.length}
+
+` +
+      `**Case:** #${record.caseId}  •  **Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
   });
-  await announce(input.guild, cfg.channels.staffActionChannelId, { embeds: [embed] });
+  await announce(input.guild, cfg.channels.infractionChannelId, { embeds: [embed] });
   await input.target.send({ embeds: [embed] }).catch(() => undefined);
   return record;
 }

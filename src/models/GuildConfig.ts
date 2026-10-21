@@ -65,10 +65,14 @@ const GuildConfigSchema = new Schema(
     staffRanks: { type: [RankSchema], default: [] },
     channels: {
       announcementChannelId: { type: String },
+      applicationsChannelId: { type: String },
       ticketPanelChannelId: { type: String },
+      staffInfoChannelId: { type: String },
       ticketLogChannelId: { type: String },
       ticketParentCategoryId: { type: String },
-      staffActionChannelId: { type: String },
+      staffActionChannelId: { type: String }, // legacy fallback only
+      promotionChannelId: { type: String },
+      infractionChannelId: { type: String },
       moderationLogChannelId: { type: String },
       sessionChannelId: { type: String },
       suggestionsChannelId: { type: String },

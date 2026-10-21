@@ -22,7 +22,7 @@ export const setupCommand: BotCommand = {
       title: 'Wisconsin State Roleplay — Guided Setup',
       description:
         'Choose a section below. Discord channels, roles, and users are selected directly with Discord pickers; the bot stores their IDs internally so configuration stays stable after renames.\n\n' +
-        '**Recommended order:** Branding → Channels → Permissions → Staff Rank → Server → Rules → Applications → Ticket Support → AutoMod → Limits & Retention.',
+        '**Recommended order:** Branding → Channels → Permissions → Staff Rank → Server → Applications → Ticket Support → AutoMod → Limits & Retention. The Rules button uses the website configured under Server / Session.',
     });
     const menu = new StringSelectMenuBuilder()
       .setCustomId('setup:section')
@@ -34,7 +34,6 @@ export const setupCommand: BotCommand = {
         { label: 'Authorized Admin Users', value: 'admin-users', description: 'Pick specific Discord users allowed to run setup.' },
         { label: 'Add / Update Staff Rank', value: 'rank', description: 'Pick a Discord role, then set its rank level.' },
         { label: 'Server / Session', value: 'server', description: 'Private-server name, join code and links.' },
-        { label: 'Rules', value: 'rules', description: 'Discord and in-game regulations.' },
         { label: 'Application Panel', value: 'application', description: 'Melonly link, status and panel text.' },
         { label: 'Ticket Categories', value: 'ticket', description: 'Edit ticket category text and intake questions.' },
         { label: 'Ticket Support Roles', value: 'ticket-roles', description: 'Pick Discord roles for ticket support/restricted access.' },
