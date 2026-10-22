@@ -66,6 +66,7 @@ export const staffCommand: BotCommand = {
             ),
         )
         .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000))
+        .addStringOption((o) => o.setName('notes').setDescription('Optional notes shown in the staff announcement').setMaxLength(1000))
         .addStringOption((o) => o.setName('evidence').setDescription('Evidence URLs separated by spaces').setMaxLength(1000))
         .addIntegerOption((o) => o.setName('duration_hours').setDescription('Suspension duration in hours').setMinValue(1).setMaxValue(24 * 90))
         .addBooleanOption((o) => o.setName('rehire_ineligible').setDescription('Termination only: flag as rehire-ineligible internally'))
@@ -168,6 +169,7 @@ export const staffCommand: BotCommand = {
           type,
           reason,
           evidence,
+          notes: interaction.options.getString('notes') ?? undefined,
           expiry: duration ? new Date(Date.now() + duration * 3_600_000) : undefined,
         });
         await interaction.editReply({ content: `✅ Staff infraction recorded. Case #${record.caseId}.` });

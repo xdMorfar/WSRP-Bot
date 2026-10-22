@@ -17,6 +17,19 @@ async function announce(guild: Guild, channelId: string | undefined, payload: an
   if (channel?.isTextBased()) await channel.send({ ...payload, allowedMentions: payload.allowedMentions ?? { parse: [] } }).catch(() => undefined);
 }
 
+
+function getShrPingRoleIds(cfg: any) {
+  return [...new Set((cfg.staffRanks ?? [])
+    .filter((r: any) => /(^|\b)shr(\b|$)|senior\s+high\s+rank/i.test(String(r.name || '')))
+    .map((r: any) => String(r.roleId))
+    .filter(Boolean))];
+}
+
+function rankDisplay(rank: { roleId?: string | null; name?: string | null } | null | undefined) {
+  if (!rank) return 'Unspecified';
+  return rank.roleId ? `<@&${rank.roleId}>` : String(rank.name || 'Unspecified');
+}
+
 export async function changeStaffRank(input: {
   guild: Guild;
   actor: GuildMember;
@@ -43,11 +56,18 @@ export async function changeStaffRank(input: {
   }
 
   let next: any;
-  if (input.newRankRoleId) next = ranks.find((r: any) => r.roleId === input.newRankRoleId);
-  else if (input.direction === 'promote') next = ranks.find((r: any) => r.level > (previous?.level ?? -Infinity));
+  if (input.newRankRoleId) {
+    next = ranks.find((r: any) => r.roleId === input.newRankRoleId);
+    if (!next) {
+      const selectedRole = input.guild.roles.cache.get(input.newRankRoleId);
+      next = selectedRole ? { roleId: selectedRole.id, name: selectedRole.name, level: previous?.level ?? 0 } : null;
+    }
+  } else if (input.direction === 'promote') next = ranks.find((r: any) => r.level > (previous?.level ?? -Infinity));
   else next = [...ranks].reverse().find((r: any) => r.level < (previous?.level ?? Infinity));
 
-  if (!next) throw new Error(`No valid rank found for that ${input.direction}.`);
+  if (!next) {
+    next = { roleId: null, name: input.direction === 'promote' ? 'Promotion Recorded' : 'Demotion Recorded', level: previous?.level ?? 0 };
+  }
   if (actorRank && next.level >= actorRank.level && input.actor.id !== input.guild.ownerId) {
     throw new Error('You cannot record a rank equal to or above your own configured staff rank.');
   }
@@ -79,8 +99,8 @@ export async function changeStaffRank(input: {
     { upsert: true, new: true },
   );
 
-  const previousRank = previous?.roleId ? `<@&${previous.roleId}>` : 'None';
-  const nextRank = `<@&${next.roleId}>`;
+  const previousRank = rankDisplay(previous ? { roleId: previous.roleId, name: previous.name } : null);
+  const nextRank = rankDisplay(next);
   const isPromotion = input.direction === 'promote';
   const now = Math.floor(Date.now() / 1000);
 
@@ -88,18 +108,18 @@ export async function changeStaffRank(input: {
     title: `${cfg.branding.name} | Staff ${isPromotion ? 'Promotion' : 'Demotion'}`,
     color: isPromotion ? cfg.branding.primaryColor : cfg.branding.warningColor,
     showDefaultThumbnail: false,
-    description:
-      `> ${isPromotion
-        ? `The **${cfg.branding.name} High Rank Team** is pleased to recognize <@${input.target.id}> with a staff promotion.`
-        : `The **${cfg.branding.name} High Rank Team** has recorded a staff rank adjustment for <@${input.target.id}>.`}\n\n` +
-      `### ${isPromotion ? 'Promotion' : 'Demotion'} Information\n` +
-      `• **Staff Member:** <@${input.target.id}>\n` +
-      `• **${isPromotion ? 'Promoted' : 'Demoted'} By:** <@${input.actor.id}>\n` +
-      `• **Previous Rank:** ${previousRank}\n` +
-      `• **New Rank:** ${nextRank}\n` +
-      `• **Reason:** ${cleanUserText(input.reason, 900)}\n` +
-      `• **Notes:** ${notes || 'No additional notes.'}\n\n` +
-      `> **${isPromotion ? 'Promoted' : 'Recorded'}:** <t:${now}:F>  |  **Signed by:** <@${input.actor.id}>  |  **Case:** #${record.caseId}`,
+    description: isPromotion
+      ? `The **${cfg.branding.name} High Rank Team** is pleased to recognize <@${input.target.id}> with a staff promotion.`
+      : `The **${cfg.branding.name} High Rank Team** has recorded a staff rank adjustment for <@${input.target.id}>.`,
+    fields: [
+      { name: 'Staff Member', value: `<@${input.target.id}>`, inline: true },
+      { name: isPromotion ? 'Promoted By' : 'Demoted By', value: `<@${input.actor.id}>`, inline: true },
+      { name: 'New Rank', value: nextRank, inline: true },
+      { name: 'Previous Rank', value: previousRank, inline: true },
+      { name: 'Reason', value: cleanUserText(input.reason, 1024), inline: false },
+      { name: 'Notes', value: notes || 'No additional notes.', inline: false },
+      { name: 'Signed By', value: `<@${input.actor.id}>`, inline: false },
+    ],
   });
 
   const embeds: any[] = [];
@@ -108,23 +128,21 @@ export async function changeStaffRank(input: {
   }
   embeds.push(detailEmbed);
 
-  // Automatically ping configured staff rank(s) named SHR / Senior High Rank.
-  const shrRoleIds = [...new Set((cfg.staffRanks ?? [])
-    .filter((r: any) => /(^|\b)shr(\b|$)|senior\s+high\s+rank/i.test(String(r.name || '')))
-    .map((r: any) => String(r.roleId))
-    .filter(Boolean))];
-  const pingContent = shrRoleIds.length ? shrRoleIds.map((id) => `<@&${id}>`).join(' ') : undefined;
+  const shrRoleIds = getShrPingRoleIds(cfg);
+  const mentionParts = [...shrRoleIds.map((id) => `<@&${id}>`), `<@${input.actor.id}>`];
+  const allowedMentionUsers = [input.actor.id];
 
   await announce(
     input.guild,
     isPromotion ? cfg.channels.promotionChannelId : cfg.channels.infractionChannelId,
     {
-      content: pingContent,
+      content: mentionParts.join(' '),
       embeds,
-      allowedMentions: shrRoleIds.length ? { parse: [], roles: shrRoleIds } : { parse: [] },
+      allowedMentions: { parse: [], roles: shrRoleIds, users: allowedMentionUsers },
     },
   );
   await input.target.send({ embeds }).catch(() => undefined);
+
   return record;
 }
 
@@ -135,6 +153,7 @@ export async function issueStaffInfraction(input: {
   type: string;
   reason: string;
   evidence?: string[];
+  notes?: string;
   expiry?: Date;
 }) {
   const cfg = await getGuildConfig(input.guild.id);
@@ -198,32 +217,36 @@ export async function issueStaffInfraction(input: {
     .split('-')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-  const embed = await brandedEmbed(input.guild.id, {
+  const notes = cleanUserText(input.notes || '', 1000);
+  const publicEmbeds: any[] = [];
+  if (cfg.branding.staffBannerUrl) {
+    publicEmbeds.push(new EmbedBuilder().setColor(input.type === 'verbal-warning' ? cfg.branding.warningColor : cfg.branding.dangerColor).setImage(cfg.branding.staffBannerUrl));
+  }
+  const detailEmbed = await brandedEmbed(input.guild.id, {
     title: `Staff Infraction — ${typeLabel}`,
     color: input.type === 'verbal-warning' ? cfg.branding.warningColor : cfg.branding.dangerColor,
-    imageUrl: cfg.branding.staffBannerUrl || undefined,
     showDefaultThumbnail: false,
-    description:
-      `The **${cfg.branding.name} High Rank Team** has issued a staff disciplinary action after reviewing the relevant conduct.
-
-` +
-      `### Infraction Information
-` +
-      `**Staff Member:** <@${input.target.id}>
-` +
-      `**Issued By:** <@${input.actor.id}>
-` +
-      `**Infraction:** ${typeLabel}
-` +
-      `**Reason:** ${cleanUserText(input.reason, 900)}
-` +
-      `${input.expiry ? `**Expires:** <t:${Math.floor(input.expiry.getTime() / 1000)}:F>
-` : ''}` +
-      `
-**Case:** #${record.caseId}  •  **Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
+    description: `The **${cfg.branding.name} High Rank Team** has issued a staff disciplinary action after reviewing the relevant conduct.`,
+    fields: [
+      { name: 'Staff Member', value: `<@${input.target.id}>`, inline: true },
+      { name: 'Issued By', value: `<@${input.actor.id}>`, inline: true },
+      { name: 'Infraction', value: typeLabel, inline: true },
+      { name: 'Reason', value: cleanUserText(input.reason, 1024), inline: false },
+      ...(notes ? [{ name: 'Notes', value: notes, inline: false as const }] : []),
+      ...(input.expiry ? [{ name: 'Expires', value: `<t:${Math.floor(input.expiry.getTime() / 1000)}:F>`, inline: false as const }] : []),
+      { name: 'Signed By', value: `<@${input.actor.id}>`, inline: false },
+    ],
   });
-  await announce(input.guild, cfg.channels.infractionChannelId, { embeds: [embed] });
-  await input.target.send({ embeds: [embed] }).catch(() => undefined);
+  publicEmbeds.push(detailEmbed);
+  const shrRoleIds = getShrPingRoleIds(cfg);
+  const mentionParts = [...shrRoleIds.map((id) => `<@&${id}>`), `<@${input.actor.id}>`];
+  await announce(input.guild, cfg.channels.infractionChannelId, {
+    content: mentionParts.join(' '),
+    embeds: publicEmbeds,
+    allowedMentions: { parse: [], roles: shrRoleIds, users: [input.actor.id] },
+  });
+  await input.target.send({ embeds: publicEmbeds }).catch(() => undefined);
+
   return record;
 }
 
