@@ -28,9 +28,7 @@ export async function buildDashboard(guildId: string) {
   const cfg = await getGuildConfig(guildId);
   const embed = await brandedEmbed(guildId, {
     title: `${cfg.branding.name} Dashboard`,
-    description:
-      `Welcome to **${cfg.branding.name}**. Use the buttons below to go directly to the section you need.\n\n` +
-      `Applications, assistance, staff information and sessions each have their own dedicated channel. Server regulations are hosted on the official rules website.`,
+    description: `Welcome to **${cfg.branding.name}**. Choose an option below to continue.`,
     imageUrl: cfg.branding.dashboardBannerUrl || undefined,
     showDefaultThumbnail: false,
   });

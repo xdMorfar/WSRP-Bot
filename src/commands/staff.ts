@@ -34,7 +34,8 @@ export const staffCommand: BotCommand = {
         .setDescription('Promote a staff member.')
         .addUserOption((o) => o.setName('member').setDescription('Staff member').setRequired(true))
         .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000))
-        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role')),
+        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role'))
+        .addStringOption((o) => o.setName('notes').setDescription('Optional notes shown in the staff announcement').setMaxLength(1000)),
     )
     .addSubcommand((s) =>
       s
@@ -42,7 +43,8 @@ export const staffCommand: BotCommand = {
         .setDescription('Demote a staff member.')
         .addUserOption((o) => o.setName('member').setDescription('Staff member').setRequired(true))
         .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(1000))
-        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role')),
+        .addRoleOption((o) => o.setName('rank').setDescription('Configured new rank role'))
+        .addStringOption((o) => o.setName('notes').setDescription('Optional notes shown in the staff announcement').setMaxLength(1000)),
     )
     .addSubcommand((s) =>
       s
@@ -97,6 +99,7 @@ export const staffCommand: BotCommand = {
           direction: sub,
           newRankRoleId: rank?.id,
           reason: interaction.options.getString('reason', true),
+          notes: interaction.options.getString('notes') ?? undefined,
         });
         await interaction.editReply({ content: `✅ Staff ${sub} completed. Case #${record.caseId}.` });
       } catch (e: any) {

@@ -1,4 +1,4 @@
-import type { Guild, GuildMember } from 'discord.js';
+import { EmbedBuilder, type Guild, type GuildMember } from 'discord.js';
 import { getGuildConfig } from './configService';
 import { createCase } from './caseService';
 import { StaffProfileModel } from '../models/StaffProfile';
@@ -14,7 +14,7 @@ function getRankForMember(member: GuildMember, ranks: any[]) {
 async function announce(guild: Guild, channelId: string | undefined, payload: any) {
   if (!channelId) return;
   const channel = guild.channels.cache.get(channelId);
-  if (channel?.isTextBased()) await channel.send({ ...payload, allowedMentions: { parse: [] } }).catch(() => undefined);
+  if (channel?.isTextBased()) await channel.send({ ...payload, allowedMentions: payload.allowedMentions ?? { parse: [] } }).catch(() => undefined);
 }
 
 export async function changeStaffRank(input: {
@@ -24,37 +24,37 @@ export async function changeStaffRank(input: {
   direction: 'promote' | 'demote';
   newRankRoleId?: string;
   reason: string;
+  notes?: string;
 }) {
   const cfg = await getGuildConfig(input.guild.id);
   const check = await hierarchyCheck(input.actor, input.target, { requiredBucket: 'hr' });
   if (!check.ok) throw new Error(check.reason);
+
   const ranks = [...(cfg.staffRanks ?? [])].sort((a: any, b: any) => a.level - b.level);
   if (!ranks.length) throw new Error('No staff ranks are configured.');
+
   const previous = getRankForMember(input.target, ranks);
   const actorRank = getRankForMember(input.actor, ranks);
-  if (input.actor.id !== input.guild.ownerId && !actorRank) throw new Error('You need a configured staff rank before changing staff ranks.');
-  if (input.direction === 'demote' && !previous) throw new Error('The target does not currently have a configured staff rank to demote from.');
+  if (input.actor.id !== input.guild.ownerId && !actorRank) {
+    throw new Error('You need a configured staff rank before recording staff rank changes.');
+  }
+  if (input.direction === 'demote' && !previous) {
+    throw new Error('The target does not currently have a configured staff rank to demote from.');
+  }
+
   let next: any;
   if (input.newRankRoleId) next = ranks.find((r: any) => r.roleId === input.newRankRoleId);
   else if (input.direction === 'promote') next = ranks.find((r: any) => r.level > (previous?.level ?? -Infinity));
   else next = [...ranks].reverse().find((r: any) => r.level < (previous?.level ?? Infinity));
+
   if (!next) throw new Error(`No valid rank found for that ${input.direction}.`);
   if (actorRank && next.level >= actorRank.level && input.actor.id !== input.guild.ownerId) {
-    throw new Error('You cannot grant a rank equal to or above your own configured staff rank.');
+    throw new Error('You cannot record a rank equal to or above your own configured staff rank.');
   }
-  const bot = input.guild.members.me;
-  const nextRole = input.guild.roles.cache.get(next.roleId);
-  if (!nextRole) throw new Error('The configured target rank role no longer exists.');
-  if (!bot || nextRole.position >= bot.roles.highest.position) throw new Error('The bot role must be above the rank role it needs to assign.');
 
-  const rankRoleIds = ranks.map((r: any) => r.roleId);
-  const removable = input.target.roles.cache.filter((role) => rankRoleIds.includes(role.id) && role.id !== next.roleId).map((r) => r.id);
-  const blockedRemovals = removable.filter((id) => {
-    const role = input.guild.roles.cache.get(id);
-    return role && bot && role.position >= bot.roles.highest.position;
-  });
-  if (blockedRemovals.length) throw new Error(`The bot role is below a rank role it must remove: ${blockedRemovals.map((id) => `<@&${id}>`).join(', ')}.`);
-
+  // IMPORTANT: promotions/demotions are announcement + record only.
+  // SHR/management manually handles the actual Discord rank role changes.
+  const notes = cleanUserText(input.notes || '', 1000);
   const record = await createCase({
     guildId: input.guild.id,
     category: 'staff',
@@ -62,31 +62,17 @@ export async function changeStaffRank(input: {
     targetId: input.target.id,
     issuerId: input.actor.id,
     reason: cleanUserText(input.reason, 1000),
-    metadata: { previousRankRoleId: previous?.roleId ?? null, previousRankName: previous?.name ?? 'None', newRankRoleId: next.roleId, newRankName: next.name, executionStatus: 'pending' },
+    metadata: {
+      previousRankRoleId: previous?.roleId ?? null,
+      previousRankName: previous?.name ?? 'None',
+      newRankRoleId: next.roleId,
+      newRankName: next.name,
+      notes: notes || null,
+      executionStatus: 'recorded-awaiting-manual-role-change',
+      roleChangeMode: 'manual-by-shr',
+    },
   });
 
-  const originallyHadNext = input.target.roles.cache.has(next.roleId);
-  try {
-    if (removable.length) await input.target.roles.remove(removable, `${input.direction} case #${record.caseId} by ${input.actor.user.tag}`);
-    if (!originallyHadNext) await input.target.roles.add(next.roleId, `${input.direction} case #${record.caseId} by ${input.actor.user.tag}`);
-    record.metadata = { ...(record.metadata ?? {}), executionStatus: 'completed' };
-    await record.save();
-  } catch (error: any) {
-    let rollbackFailed = false;
-    try {
-      if (removable.length) await input.target.roles.add(removable, `Rollback failed ${input.direction} case #${record.caseId}`);
-      if (!originallyHadNext && input.target.roles.cache.has(next.roleId)) await input.target.roles.remove(next.roleId, `Rollback failed ${input.direction} case #${record.caseId}`);
-    } catch {
-      rollbackFailed = true;
-    }
-    record.revoked = true;
-    record.revokedBy = input.guild.members.me?.id;
-    record.revokedAt = new Date();
-    record.revokedReason = `Rank change execution failed${rollbackFailed ? '; rollback was incomplete' : '; role changes were rolled back'}.`;
-    record.metadata = { ...(record.metadata ?? {}), executionStatus: rollbackFailed ? 'failed-partial' : 'failed-rolled-back', error: String(error?.message || error) };
-    await record.save().catch(() => undefined);
-    throw new Error(`Rank change failed${rollbackFailed ? ' and automatic rollback was incomplete. Review the member roles and case immediately.' : '; previous roles were restored.'}`);
-  }
   await StaffProfileModel.findOneAndUpdate(
     { guildId: input.guild.id, userId: input.target.id },
     { $set: { employmentStatus: 'active', lastKnownRankRoleId: next.roleId } },
@@ -96,34 +82,49 @@ export async function changeStaffRank(input: {
   const previousRank = previous?.roleId ? `<@&${previous.roleId}>` : 'None';
   const nextRank = `<@&${next.roleId}>`;
   const isPromotion = input.direction === 'promote';
-  const embed = await brandedEmbed(input.guild.id, {
-    title: isPromotion ? 'Staff Promotion' : 'Staff Demotion',
+  const now = Math.floor(Date.now() / 1000);
+
+  const detailEmbed = await brandedEmbed(input.guild.id, {
+    title: `${cfg.branding.name} | Staff ${isPromotion ? 'Promotion' : 'Demotion'}`,
     color: isPromotion ? cfg.branding.primaryColor : cfg.branding.warningColor,
-    imageUrl: cfg.branding.staffBannerUrl || undefined,
     showDefaultThumbnail: false,
     description:
-      `${isPromotion
-        ? `The **${cfg.branding.name} High Rank Team** is pleased to recognize <@${input.target.id}> for their work and contribution to the staff team.`
-        : `The **${cfg.branding.name} High Rank Team** has finalized a staff rank change for <@${input.target.id}>.`}
-
-` +
-      `### ${isPromotion ? 'Promotion' : 'Demotion'} Information
-` +
-      `**Staff Member:** <@${input.target.id}>
-` +
-      `**${isPromotion ? 'Promoted' : 'Demoted'} By:** <@${input.actor.id}>
-` +
-      `**Previous Rank:** ${previousRank}
-` +
-      `**New Rank:** ${nextRank}
-` +
-      `**Reason:** ${cleanUserText(input.reason, 900)}
-
-` +
-      `**Case:** #${record.caseId}  •  **Date:** <t:${Math.floor(Date.now() / 1000)}:F>`,
+      `> ${isPromotion
+        ? `The **${cfg.branding.name} High Rank Team** is pleased to recognize <@${input.target.id}> with a staff promotion.`
+        : `The **${cfg.branding.name} High Rank Team** has recorded a staff rank adjustment for <@${input.target.id}>.`}\n\n` +
+      `### ${isPromotion ? 'Promotion' : 'Demotion'} Information\n` +
+      `• **Staff Member:** <@${input.target.id}>\n` +
+      `• **${isPromotion ? 'Promoted' : 'Demoted'} By:** <@${input.actor.id}>\n` +
+      `• **Previous Rank:** ${previousRank}\n` +
+      `• **New Rank:** ${nextRank}\n` +
+      `• **Reason:** ${cleanUserText(input.reason, 900)}\n` +
+      `• **Notes:** ${notes || 'No additional notes.'}\n\n` +
+      `> **${isPromotion ? 'Promoted' : 'Recorded'}:** <t:${now}:F>  |  **Signed by:** <@${input.actor.id}>  |  **Case:** #${record.caseId}`,
   });
-  await announce(input.guild, isPromotion ? cfg.channels.promotionChannelId : cfg.channels.infractionChannelId, { embeds: [embed] });
-  await input.target.send({ embeds: [embed] }).catch(() => undefined);
+
+  const embeds: any[] = [];
+  if (cfg.branding.staffBannerUrl) {
+    embeds.push(new EmbedBuilder().setColor(isPromotion ? cfg.branding.primaryColor : cfg.branding.warningColor).setImage(cfg.branding.staffBannerUrl));
+  }
+  embeds.push(detailEmbed);
+
+  // Automatically ping configured staff rank(s) named SHR / Senior High Rank.
+  const shrRoleIds = [...new Set((cfg.staffRanks ?? [])
+    .filter((r: any) => /(^|\b)shr(\b|$)|senior\s+high\s+rank/i.test(String(r.name || '')))
+    .map((r: any) => String(r.roleId))
+    .filter(Boolean))];
+  const pingContent = shrRoleIds.length ? shrRoleIds.map((id) => `<@&${id}>`).join(' ') : undefined;
+
+  await announce(
+    input.guild,
+    isPromotion ? cfg.channels.promotionChannelId : cfg.channels.infractionChannelId,
+    {
+      content: pingContent,
+      embeds,
+      allowedMentions: shrRoleIds.length ? { parse: [], roles: shrRoleIds } : { parse: [] },
+    },
+  );
+  await input.target.send({ embeds }).catch(() => undefined);
   return record;
 }
 

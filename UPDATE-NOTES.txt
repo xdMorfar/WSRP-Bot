@@ -27,3 +27,11 @@ Changes:
 - Demotions, infractions, suspensions and terminations go only to Infractions Channel.
 - Staff announcement embeds were redesigned and no longer show the large automatic logo thumbnail.
 - Moving a tracked panel to another configured channel removes the old tracked panel when possible.
+
+
+2026-10-21 MANUAL RANK WORKFLOW + STAFF EMBED POLISH
+- Promotions/demotions no longer add/remove Discord rank roles. SHR/management assigns roles manually.
+- Promotion/demotion commands now support optional notes.
+- Promotion/demotion announcements use a cleaner two-embed banner/detail layout.
+- Configured staff rank(s) named SHR or Senior High Rank are pinged on rank-change announcements.
+- Dashboard no longer explains internal dedicated-channel structure.
