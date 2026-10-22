@@ -637,7 +637,7 @@ async function pendingButton(interaction: ButtonInteraction) {
     if (claimed.kind === 'staff-termination') {
       const target = await interaction.guild.members.fetch(claimed.payload.targetId).catch(() => null);
       if (!target) throw new Error('Target staff member is no longer in the server.');
-      const record = await terminateStaff({ guild: interaction.guild, actor: interaction.member as GuildMember, target, reason: claimed.payload.reason, evidence: claimed.payload.evidence ?? [], rehireIneligible: !!claimed.payload.rehireIneligible, rehireExpiresAt: claimed.payload.rehireExpiresAt ? new Date(claimed.payload.rehireExpiresAt) : undefined });
+      const record = await terminateStaff({ guild: interaction.guild, actor: interaction.member as GuildMember, target, reason: claimed.payload.reason, evidence: claimed.payload.evidence ?? [], notes: claimed.payload.notes, rehireIneligible: !!claimed.payload.rehireIneligible, rehireExpiresAt: claimed.payload.rehireExpiresAt ? new Date(claimed.payload.rehireExpiresAt) : undefined });
       return interaction.editReply({ content: `✅ Staff termination completed. Case #${record.caseId}.`, embeds: [], components: [] });
     }
     if (claimed.kind === 'discord-ban') {

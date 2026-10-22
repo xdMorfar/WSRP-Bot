@@ -1,12 +1,12 @@
 import { EmbedBuilder, type APIEmbedField } from 'discord.js';
 import { getGuildConfig } from '../services/configService';
 
-export async function brandedEmbed(guildId: string, opts?: { title?: string; description?: string; color?: number; imageUrl?: string; thumbnailUrl?: string | null; showDefaultThumbnail?: boolean; fields?: APIEmbedField[] }) {
+export async function brandedEmbed(guildId: string, opts?: { title?: string; description?: string; color?: number; imageUrl?: string; thumbnailUrl?: string | null; showDefaultThumbnail?: boolean; showTimestamp?: boolean; fields?: APIEmbedField[] }) {
   const cfg = await getGuildConfig(guildId);
   const embed = new EmbedBuilder()
     .setColor(opts?.color ?? cfg.branding.primaryColor)
-    .setTimestamp()
     .setFooter({ text: cfg.branding.footerText || 'Powered by Wisconsin State Roleplay', iconURL: cfg.branding.logoUrl || undefined });
+  if (opts?.showTimestamp !== false) embed.setTimestamp();
   if (opts?.title) embed.setTitle(opts.title);
   if (opts?.description) embed.setDescription(opts.description);
   if (opts?.imageUrl) embed.setImage(opts.imageUrl);

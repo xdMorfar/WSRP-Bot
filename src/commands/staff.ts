@@ -136,6 +136,7 @@ export const staffCommand: BotCommand = {
             targetId: target.id,
             reason: cleanUserText(reason, 1000),
             evidence,
+            notes: interaction.options.getString('notes') ?? undefined,
             rehireIneligible: interaction.options.getBoolean('rehire_ineligible') ?? false,
             rehireExpiresAt: rehireDays ? new Date(Date.now() + rehireDays * 86_400_000).toISOString() : null,
           },
